@@ -1,7 +1,7 @@
 import requests
 import json
 from datetime import datetime
-from config import ORDERS_URL, HEADERS, ACCOUNT_URL, POSITIONS_URL, AMOUNT
+from config import ORDERS_URL, HEADERS, ACCOUNT_URL, POSITIONS_URL, AMOUNT, VALID_SIDES
 
 import logging
 logfile = 'logs/signal_{}.log'.format(datetime.now().date())
@@ -15,7 +15,7 @@ app = Flask(__name__)
 
 def get_account():
     r = requests.get(ACCOUNT_URL, headers=HEADERS)
-    print("Account details:")
+    print("\nAccount details:")
     print(json.loads(r.content))
     print("=====================================\n")
 
@@ -59,46 +59,50 @@ def get_position(symbol):
         return response.json()  # Returns position details
     else:
         return None  # No position found
-    
+
+
+def buy(symbol, close, side="buy"):
+    position = get_position(symbol)
+
+    if position:
+        response = {"status": "skipped", "message": f"Already holding {symbol}, skipping buy order."}
+        print(f"{datetime.now()} - Already holding {symbol}, skipping buy order.")
+        logging.warning(f"{datetime.now()} - Already holding {symbol}, skipping buy order.")
+
+    else:
+        response = create_order(
+            symbol=symbol,
+            qty=AMOUNT / close,
+            side=side,
+            order_type="market",
+            time_in_force="day"
+        )
+        print(f"{datetime.now()} - Buy order for {symbol} placed successfully.")
+        logging.warning(f"{datetime.now()} - Buy order for {symbol} placed successfully.")
+
+    return response
+
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """Receive webhook from TradingView and process trade orders"""
     try:
         data = request.get_json()
-
         side = data.get("side")
         symbol = data.get("symbol")
-        close = float(data.get("close"))
+        close = data.get("close")
 
         if not all([side, symbol, close]):
             raise ValueError("Missing required fields in webhook payload.")
+        
+        side = side.lower()
+        if side not in VALID_SIDES:
+            raise ValueError("Invalid side provided in webhook payload.")
 
-        if side.upper() == "SELL":
-            # Close all positions for the symbol
+        if side == "sell":
             response = close_position(symbol)
-
-        elif side.upper() == "BUY":
-            # Check if we already hold this stock
-            position = get_position(symbol)
-            if position:
-                response = {"status": "skipped", "message": f"Already holding {symbol}, skipping buy order."}
-                print(f"{datetime.now()} - Already holding {symbol}, skipping buy order.")
-                logging.warning(f"{datetime.now()} - Already holding {symbol}, skipping buy order.")
-            else:
-                qty = AMOUNT / close  # Calculate quantity to buy
-                response = create_order(
-                    symbol=symbol,
-                    qty=qty,
-                    side="buy",
-                    order_type="market",
-                    time_in_force="day"
-                )
-                print(f"{datetime.now()} - Buy order for {symbol} placed successfully.")
-                logging.warning(f"{datetime.now()} - Buy order for {symbol} placed successfully.")
-
         else:
-            response = {"status": "error", "message": "Invalid side provided."}
+            response = buy(symbol, float(close), side)
 
         return jsonify(response), 200
 
