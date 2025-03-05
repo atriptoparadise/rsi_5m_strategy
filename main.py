@@ -13,7 +13,6 @@ BASE_URL = os.environ['BASE_URL']
 ORDERS_URL = "{}/v2/orders".format(BASE_URL)
 ACCOUNT_URL = "{}/v2/account".format(BASE_URL)
 POSITIONS_URL = "{}/v2/positions".format(BASE_URL)
-AMOUNT = float(os.environ['AMOUNT'])
 VALID_SIDES = {'buy', 'sell'}
 
 # Headers for API requests - set API keys in Lambda environment variables
@@ -22,6 +21,19 @@ HEADERS = {
     'APCA-API-SECRET-KEY': os.environ['ALPACA_API_SECRET'],
     'Content-Type': 'application/json'
 }
+
+
+def get_dynamic_amount():
+    """Fetches account equity from Alpaca safely."""
+    try:
+        r = requests.get(ACCOUNT_URL, headers=HEADERS)
+        r.raise_for_status()
+        data = r.json()
+        equity =  float(data.get('equity', 35000)) 
+        return equity * 0.425
+    except Exception as e:
+        logging.error(f"Error fetching equity: {e}")
+        return 0
 
 
 def create_order(symbol, qty, side, order_type, time_in_force):
@@ -77,7 +89,7 @@ def buy(symbol, close, side="buy"):
         }
         logger.warning(f"{datetime.now()} - Already holding {symbol}, skipping buy order.")
     else:
-        qty = AMOUNT / float(close)
+        qty = get_dynamic_amount() / float(close)
         response = create_order(
             symbol=symbol,
             qty=qty,
